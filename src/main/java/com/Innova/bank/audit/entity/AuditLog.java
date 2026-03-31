@@ -43,8 +43,6 @@ public class AuditLog {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    // 🔥 NUEVOS CAMPOS (nivel enterprise)
-
     @Column(length = 255)
     private String endpoint;
 

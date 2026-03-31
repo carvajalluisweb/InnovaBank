@@ -55,6 +55,24 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PATCH, "/api/users/*/status")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/accounts/me")
+                        .hasAuthority(Rol.ROLE_USER.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/accounts/me/*")
+                        .hasAuthority(Rol.ROLE_USER.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/accounts/allAccounts")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/accounts/*")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/accounts/createAccount")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.PATCH, "/api/accounts/*/status")
+                        .hasAuthority(Rol.ROLE_ADMIN.name())
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session ->
