@@ -1,8 +1,10 @@
 package com.Innova.bank.auth.security;
 
-import com.Innova.bank.auth.entity.User;
-import com.Innova.bank.auth.repository.UserRepository;
+import com.Innova.bank.enums.UserStatus;
+import com.Innova.bank.user.entity.User;
+import com.Innova.bank.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -21,6 +23,11 @@ public class CustomUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado"));
+
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new DisabledException("El usuario no está activo");
+        }
+
 
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),

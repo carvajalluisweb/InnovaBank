@@ -1,4 +1,5 @@
-package com.Innova.bank.auth.dto;
+package com.Innova.bank.user.dto;
+
 import lombok.*;
 
 @Getter
@@ -6,7 +7,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ActualSessionResponse {
+public class UserResponse {
+
     private Long id;
     private String idNumber;
     private String firstName;

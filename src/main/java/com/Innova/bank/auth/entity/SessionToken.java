@@ -1,5 +1,6 @@
 package com.Innova.bank.auth.entity;
 
+import com.Innova.bank.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 

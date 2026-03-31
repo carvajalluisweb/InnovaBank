@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class AuditLog {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -41,4 +42,25 @@ public class AuditLog {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    // 🔥 NUEVOS CAMPOS (nivel enterprise)
+
+    @Column(length = 255)
+    private String endpoint;
+
+    @Column(name = "http_method", length = 10)
+    private String httpMethod;
+
+    @Column(name = "user_agent", columnDefinition = "TEXT")
+    private String userAgent;
+
+    @Column(name = "request_id", length = 100)
+    private String requestId;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
+    }
 }

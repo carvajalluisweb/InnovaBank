@@ -1,7 +1,7 @@
 package com.Innova.bank.auth.service;
 
 import com.Innova.bank.auth.entity.SessionToken;
-import com.Innova.bank.auth.entity.User;
+import com.Innova.bank.user.entity.User;
 
 public interface SessionService {
 
