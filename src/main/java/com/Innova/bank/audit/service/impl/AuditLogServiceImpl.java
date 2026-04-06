@@ -7,8 +7,10 @@ import com.Innova.bank.audit.service.AuditLogService;
 import com.Innova.bank.enums.AuditAction;
 import com.Innova.bank.enums.AuditStatus;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.UUID;
 
@@ -20,6 +22,7 @@ public class AuditLogServiceImpl implements AuditLogService {
     private final AuditLogMapper auditLogMapper;
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void save(
             Long userId,
             String email,

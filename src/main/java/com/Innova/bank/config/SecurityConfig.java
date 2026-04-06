@@ -73,6 +73,21 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PATCH, "/api/accounts/*/status")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.POST, "/api/transactions/transfer")
+                        .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/transactions/deposit")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/transactions/withdrawal")
+                        .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/transactions/me")
+                        .hasAuthority(Rol.ROLE_USER.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/transactions/account/*")
+                        .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session ->
