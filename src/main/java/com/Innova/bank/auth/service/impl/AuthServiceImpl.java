@@ -1,6 +1,7 @@
 package com.Innova.bank.auth.service.impl;
 
 import com.Innova.bank.audit.service.AuditLogService;
+import com.Innova.bank.common.exception.UnauthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.Innova.bank.auth.dto.*;
@@ -131,7 +132,7 @@ public class AuthServiceImpl implements AuthService {
                     httpRequest
             );
 
-            throw new BadRequestException("El refresh token ha expirado");
+            throw new UnauthorizedException("El refresh token ha expirado");
         }
 
         User user = sessionToken.getUser();
@@ -147,7 +148,7 @@ public class AuthServiceImpl implements AuthService {
                     httpRequest
             );
 
-            throw new BadRequestException("Refresh token inválido");
+            throw new UnauthorizedException("Refresh token inválido");
         }
 
         String newAccessToken = tokenService.generateAccessToken(userDetails, sessionToken.getSessionId());
@@ -177,7 +178,7 @@ public class AuthServiceImpl implements AuthService {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated()) {
-            throw new BadRequestException("Usuario no autenticado");
+            throw new UnauthorizedException("Usuario no autenticado");
         }
 
         String email = authentication.getName();

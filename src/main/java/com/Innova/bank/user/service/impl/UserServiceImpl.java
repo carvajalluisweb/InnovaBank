@@ -3,12 +3,12 @@ package com.Innova.bank.user.service.impl;
 import com.Innova.bank.audit.service.AuditLogService;
 import com.Innova.bank.auth.dto.ActualSessionResponse;
 import com.Innova.bank.common.exception.BadRequestException;
+import com.Innova.bank.common.exception.ForbiddenException;
 import com.Innova.bank.common.exception.ResourceNotFoundException;
 import com.Innova.bank.common.exception.UnauthorizedException;
 import com.Innova.bank.enums.AuditAction;
 import com.Innova.bank.enums.AuditStatus;
 import com.Innova.bank.enums.Rol;
-import com.Innova.bank.enums.UserStatus;
 import com.Innova.bank.user.dto.UpdateMyProfileRequest;
 import com.Innova.bank.user.dto.UpdateUserRoleRequest;
 import com.Innova.bank.user.dto.UpdateUserStatusRequest;
@@ -50,32 +50,25 @@ public class UserServiceImpl implements UserService {
         User authenticatedUser = getAuthenticatedUser();
 
         try {
-            authenticatedUser.setFirstName(request.getFirstName());
-            authenticatedUser.setLastName(request.getLastName());
-            authenticatedUser.setPhoneNumber(request.getPhoneNumber());
-            authenticatedUser.setAge(request.getAge());
-            authenticatedUser.setGender(request.getGender());
-
+            applyProfileUpdates(authenticatedUser, request);
             User updatedUser = userRepository.save(authenticatedUser);
 
-            auditLogService.save(
+            saveAuditSuccess(
                     updatedUser.getId(),
                     updatedUser.getEmail(),
                     AuditAction.UPDATE_PROFILE,
                     "Actualización de perfil exitosa",
-                    AuditStatus.SUCCESS,
                     httpRequest
             );
 
             return userProfileMapper.toMeResponse(updatedUser);
 
         } catch (Exception ex) {
-            auditLogService.save(
+            saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_PROFILE,
                     "Error al actualizar perfil: " + ex.getMessage(),
-                    AuditStatus.FAILED,
                     httpRequest
             );
             throw ex;
@@ -116,36 +109,28 @@ public class UserServiceImpl implements UserService {
             validateAdmin(authenticatedUser);
 
             User targetUser = findUserById(id);
-
-            if (authenticatedUser.getId().equals(targetUser.getId())) {
-                throw new BadRequestException("No puedes cambiar tu propio rol");
-            }
-
-            if (targetUser.getRole() == request.getRole()) {
-                throw new BadRequestException("El usuario ya tiene asignado ese rol");
-            }
+            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio rol");
+            validateRoleChange(targetUser, request);
 
             targetUser.setRole(request.getRole());
             User updatedUser = userRepository.save(targetUser);
 
-            auditLogService.save(
+            saveAuditSuccess(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ROLE,
                     "Cambio de rol al usuario " + updatedUser.getEmail() + " a " + request.getRole().name(),
-                    AuditStatus.SUCCESS,
                     httpRequest
             );
 
             return userProfileMapper.toUserResponse(updatedUser);
 
         } catch (Exception ex) {
-            auditLogService.save(
+            saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ROLE,
                     "Error al cambiar rol: " + ex.getMessage(),
-                    AuditStatus.FAILED,
                     httpRequest
             );
             throw ex;
@@ -164,40 +149,40 @@ public class UserServiceImpl implements UserService {
             validateAdmin(authenticatedUser);
 
             User targetUser = findUserById(id);
-
-            if (authenticatedUser.getId().equals(targetUser.getId())) {
-                throw new BadRequestException("No puedes cambiar tu propio estado");
-            }
-
-            if (targetUser.getStatus() == request.getStatus()) {
-                throw new BadRequestException("El usuario ya tiene asignado ese estado");
-            }
+            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio estado");
+            validateStatusChange(targetUser, request);
 
             targetUser.setStatus(request.getStatus());
             User updatedUser = userRepository.save(targetUser);
 
-            auditLogService.save(
+            saveAuditSuccess(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_USER_STATUS,
                     "Cambio de estado al usuario " + updatedUser.getEmail() + " a " + request.getStatus().name(),
-                    AuditStatus.SUCCESS,
                     httpRequest
             );
 
             return userProfileMapper.toUserResponse(updatedUser);
 
         } catch (Exception ex) {
-            auditLogService.save(
+            saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_USER_STATUS,
                     "Error al cambiar estado de usuario: " + ex.getMessage(),
-                    AuditStatus.FAILED,
                     httpRequest
             );
             throw ex;
         }
+    }
+
+    private void applyProfileUpdates(User user, UpdateMyProfileRequest request) {
+        user.setFirstName(request.getFirstName());
+        user.setLastName(request.getLastName());
+        user.setPhoneNumber(request.getPhoneNumber());
+        user.setAge(request.getAge());
+        user.setGender(request.getGender());
     }
 
     private User getAuthenticatedUser() {
@@ -220,13 +205,65 @@ public class UserServiceImpl implements UserService {
 
     private void validateAdmin(User user) {
         if (user.getRole() != Rol.ROLE_ADMIN) {
-            throw new UnauthorizedException("No tienes permisos para realizar esta acción");
+            throw new ForbiddenException("No tienes permisos para realizar esta acción");
         }
     }
 
     private void validateOperatorOrAdmin(User user) {
         if (user.getRole() != Rol.ROLE_OPERATOR && user.getRole() != Rol.ROLE_ADMIN) {
-            throw new UnauthorizedException("No tienes permisos para realizar esta acción");
+            throw new ForbiddenException("No tienes permisos para realizar esta acción");
         }
+    }
+
+    private void validateNotSelfOperation(User authenticatedUser, User targetUser, String message) {
+        if (authenticatedUser.getId().equals(targetUser.getId())) {
+            throw new BadRequestException(message);
+        }
+    }
+
+    private void validateRoleChange(User targetUser, UpdateUserRoleRequest request) {
+        if (targetUser.getRole() == request.getRole()) {
+            throw new BadRequestException("El usuario ya tiene asignado ese rol");
+        }
+    }
+
+    private void validateStatusChange(User targetUser, UpdateUserStatusRequest request) {
+        if (targetUser.getStatus() == request.getStatus()) {
+            throw new BadRequestException("El usuario ya tiene asignado ese estado");
+        }
+    }
+
+    private void saveAuditSuccess(
+            Long userId,
+            String email,
+            AuditAction action,
+            String description,
+            HttpServletRequest httpRequest
+    ) {
+        auditLogService.save(
+                userId,
+                email,
+                action,
+                description,
+                AuditStatus.SUCCESS,
+                httpRequest
+        );
+    }
+
+    private void saveAuditFailure(
+            Long userId,
+            String email,
+            AuditAction action,
+            String description,
+            HttpServletRequest httpRequest
+    ) {
+        auditLogService.save(
+                userId,
+                email,
+                action,
+                description,
+                AuditStatus.FAILED,
+                httpRequest
+        );
     }
 }

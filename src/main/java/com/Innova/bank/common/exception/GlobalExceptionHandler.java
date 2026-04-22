@@ -1,6 +1,9 @@
 package com.Innova.bank.common.exception;
 
+import com.Innova.bank.common.constant.RequestConstants;
 import com.Innova.bank.common.response.ErrorResponse;
+import com.Innova.bank.enums.ErrorCode;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -16,85 +19,132 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BadRequestException.class)
-    public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex) {
-        ErrorResponse response = ErrorResponse.builder()
-                .success(false)
-                .message(ex.getMessage())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .timestamp(LocalDateTime.now())
-                .errors(null)
-                .build();
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    public ResponseEntity<ErrorResponse> handleBadRequest(
+            BadRequestException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage(),
+                ErrorCode.BAD_REQUEST,
+                null,
+                request
+        );
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
-        ErrorResponse response = ErrorResponse.builder()
-                .success(false)
-                .message(ex.getMessage())
-                .status(HttpStatus.NOT_FOUND.value())
-                .timestamp(LocalDateTime.now())
-                .errors(null)
-                .build();
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    public ResponseEntity<ErrorResponse> handleResourceNotFound(
+            ResourceNotFoundException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                ex.getMessage(),
+                ErrorCode.RESOURCE_NOT_FOUND,
+                null,
+                request
+        );
     }
 
     @ExceptionHandler(UnauthorizedException.class)
-    public ResponseEntity<ErrorResponse> handleUnauthorized(UnauthorizedException ex) {
-        ErrorResponse response = ErrorResponse.builder()
-                .success(false)
-                .message(ex.getMessage())
-                .status(HttpStatus.UNAUTHORIZED.value())
-                .timestamp(LocalDateTime.now())
-                .errors(null)
-                .build();
+    public ResponseEntity<ErrorResponse> handleUnauthorized(
+            UnauthorizedException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                ex.getMessage(),
+                ErrorCode.UNAUTHORIZED,
+                null,
+                request
+        );
+    }
 
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleForbidden(
+            ForbiddenException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.FORBIDDEN,
+                ex.getMessage(),
+                ErrorCode.FORBIDDEN,
+                null,
+                request
+        );
     }
 
     @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex) {
-        ErrorResponse response = ErrorResponse.builder()
-                .success(false)
-                .message("Correo o contraseña incorrectos")
-                .status(HttpStatus.UNAUTHORIZED.value())
-                .timestamp(LocalDateTime.now())
-                .errors(null)
-                .build();
-
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    public ResponseEntity<ErrorResponse> handleBadCredentials(
+            BadCredentialsException ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                "Correo o contraseña incorrectos",
+                ErrorCode.INVALID_CREDENTIALS,
+                null,
+                request
+        );
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ErrorResponse> handleValidation(
+            MethodArgumentNotValidException ex,
+            HttpServletRequest request
+    ) {
         Map<String, String> validations = new HashMap<>();
 
-        ex.getBindingResult().getFieldErrors()
+        ex.getBindingResult()
+                .getFieldErrors()
                 .forEach(error -> validations.put(error.getField(), error.getDefaultMessage()));
 
-        ErrorResponse response = ErrorResponse.builder()
-                .success(false)
-                .message("Error de validación")
-                .status(HttpStatus.BAD_REQUEST.value())
-                .timestamp(LocalDateTime.now())
-                .errors(validations)
-                .build();
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "Error de validación",
+                ErrorCode.VALIDATION_ERROR,
+                validations,
+                request
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneral(Exception ex) {
+    public ResponseEntity<ErrorResponse> handleGeneral(
+            Exception ex,
+            HttpServletRequest request
+    ) {
+        return buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Ocurrió un error interno en el servidor",
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                null,
+                request
+        );
+    }
+
+    private ResponseEntity<ErrorResponse> buildErrorResponse(
+            HttpStatus status,
+            String message,
+            ErrorCode code,
+            Map<String, String> errors,
+            HttpServletRequest request
+    ) {
         ErrorResponse response = ErrorResponse.builder()
                 .success(false)
-                .message("Ocurrió un error interno en el servidor")
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .message(message)
+                .code(code)
+                .status(status.value())
                 .timestamp(LocalDateTime.now())
-                .errors(null)
+                .path(request.getRequestURI())
+                .requestId(getRequestId(request))
+                .errors(errors)
                 .build();
 
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        return ResponseEntity.status(status).body(response);
+    }
+
+    private String getRequestId(HttpServletRequest request) {
+        Object requestId = request.getAttribute(RequestConstants.REQUEST_ID_ATTRIBUTE);
+        return requestId != null ? requestId.toString() : null;
     }
 }

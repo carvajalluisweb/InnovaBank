@@ -1,5 +1,6 @@
 package com.Innova.bank.common.filter;
 
+import com.Innova.bank.common.constant.RequestConstants;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,10 +26,14 @@ public class RequestIdFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-        String requestId = UUID.randomUUID().toString();
+        String requestId = httpRequest.getHeader(RequestConstants.REQUEST_ID_HEADER);
 
-        httpRequest.setAttribute("requestId", requestId);
-        httpResponse.setHeader("X-Request-Id", requestId);
+        if (requestId == null || requestId.isBlank()) {
+            requestId = UUID.randomUUID().toString();
+        }
+
+        httpRequest.setAttribute(RequestConstants.REQUEST_ID_ATTRIBUTE, requestId);
+        httpResponse.setHeader(RequestConstants.REQUEST_ID_HEADER, requestId);
 
         chain.doFilter(request, response);
     }
