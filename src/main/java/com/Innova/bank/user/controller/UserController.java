@@ -36,10 +36,7 @@ public class UserController {
     }
 
     @PutMapping("/me")
-    public ResponseEntity<ApiResponse<ActualSessionResponse>> updateMyProfile(
-            @Valid @RequestBody UpdateMyProfileRequest request,
-            HttpServletRequest httpRequest
-    ) {
+    public ResponseEntity<ApiResponse<ActualSessionResponse>> updateMyProfile(@Valid @RequestBody UpdateMyProfileRequest request, HttpServletRequest httpRequest) {
         ActualSessionResponse response = userService.updateMyProfile(request, httpRequest);
 
         return ResponseEntity.ok(
@@ -51,14 +48,31 @@ public class UserController {
         );
     }
 
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
-        List<UserResponse> response = userService.getAllUsers();
+    @GetMapping("/staff")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllStaff() {
+
+        List<UserResponse> response =
+                userService.getAllStaff();
 
         return ResponseEntity.ok(
                 ApiResponse.<List<UserResponse>>builder()
                         .success(true)
-                        .message("Usuarios obtenidos correctamente")
+                        .message("Personal obtenido correctamente")
+                        .data(response)
+                        .build()
+        );
+    }
+
+    @GetMapping("/customers")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllCustomers() {
+
+        List<UserResponse> response =
+                userService.getAllCustomers();
+
+        return ResponseEntity.ok(
+                ApiResponse.<List<UserResponse>>builder()
+                        .success(true)
+                        .message("Clientes obtenidos correctamente")
                         .data(response)
                         .build()
         );

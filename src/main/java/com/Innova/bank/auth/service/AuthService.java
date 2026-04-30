@@ -5,7 +5,9 @@ import jakarta.servlet.http.HttpServletRequest;
 
 public interface AuthService {
 
-    void register(RegisterRequest request, HttpServletRequest httpRequest);
+    void registerCustomer(RegisterCustomerRequest request, HttpServletRequest httpRequest);
+
+    void registerStaff(RegisterStaffRequest request, HttpServletRequest httpRequest);
 
     AuthResponse login(LoginRequest request, HttpServletRequest httpRequest);
 

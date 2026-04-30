@@ -9,7 +9,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RegisterRequest {
+public class RegisterCustomerRequest {
     @NotBlank(message = "El nombre es obligatorio")
     private String firstName;
 

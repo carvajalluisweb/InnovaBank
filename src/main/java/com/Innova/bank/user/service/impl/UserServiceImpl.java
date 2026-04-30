@@ -14,8 +14,12 @@ import com.Innova.bank.user.dto.UpdateUserRoleRequest;
 import com.Innova.bank.user.dto.UpdateUserStatusRequest;
 import com.Innova.bank.user.dto.UserResponse;
 import com.Innova.bank.user.entity.User;
+import com.Innova.bank.user.entity.UserCustomer;
+import com.Innova.bank.user.entity.UserStaff;
 import com.Innova.bank.user.mapper.UserProfileMapper;
+import com.Innova.bank.user.repository.UserCustomerRepository;
 import com.Innova.bank.user.repository.UserRepository;
+import com.Innova.bank.user.repository.UserStaffRepository;
 import com.Innova.bank.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -32,165 +37,285 @@ import java.util.List;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final UserCustomerRepository userCustomerRepository;
+    private final UserStaffRepository userStaffRepository;
     private final UserProfileMapper userProfileMapper;
     private final AuditLogService auditLogService;
 
     @Override
     @Transactional(readOnly = true)
     public ActualSessionResponse getMyProfile() {
+
         User authenticatedUser = getAuthenticatedUser();
-        return userProfileMapper.toMeResponse(authenticatedUser);
+
+        if (authenticatedUser.getRole() == Rol.ROLE_USER) {
+
+            UserCustomer customer = userCustomerRepository.findByUser(authenticatedUser)
+                            .orElseThrow(() -> new ResourceNotFoundException("Cliente no encontrado"));
+
+            return userProfileMapper.toCustomerSessionResponse(authenticatedUser, customer);
+        }
+
+        UserStaff staff = userStaffRepository.findByUser(authenticatedUser)
+                        .orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado"));
+
+        return userProfileMapper.toStaffSessionResponse(authenticatedUser, staff);
     }
 
     @Override
-    public ActualSessionResponse updateMyProfile(
-            UpdateMyProfileRequest request,
-            HttpServletRequest httpRequest
-    ) {
+    public ActualSessionResponse updateMyProfile(UpdateMyProfileRequest request, HttpServletRequest httpRequest) {
+
         User authenticatedUser = getAuthenticatedUser();
 
         try {
-            applyProfileUpdates(authenticatedUser, request);
-            User updatedUser = userRepository.save(authenticatedUser);
+
+            if (authenticatedUser.getRole() == Rol.ROLE_USER) {
+
+                UserCustomer customer = userCustomerRepository.findByUser(authenticatedUser)
+                                .orElseThrow(() -> new ResourceNotFoundException("Cliente no encontrado"));
+
+                customer.setFirstName(request.getFirstName());
+                customer.setLastName(request.getLastName());
+                customer.setPhoneNumber(request.getPhoneNumber());
+                customer.setAge(request.getAge());
+                customer.setGender(request.getGender());
+
+                userCustomerRepository.save(customer);
+
+                saveAuditSuccess(
+                        authenticatedUser.getId(),
+                        authenticatedUser.getEmail(),
+                        AuditAction.UPDATE_PROFILE,
+                        "Cliente actualizado",
+                        httpRequest
+                );
+
+                return userProfileMapper.toCustomerSessionResponse(authenticatedUser, customer);
+            }
+
+            UserStaff staff = userStaffRepository.findByUser(authenticatedUser)
+                            .orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado"));
+
+            staff.setFirstName(request.getFirstName());
+            staff.setLastName(request.getLastName());
+            staff.setPhoneNumber(request.getPhoneNumber());
+            staff.setAge(request.getAge());
+            staff.setGender(request.getGender());
+
+            userStaffRepository.save(staff);
 
             saveAuditSuccess(
-                    updatedUser.getId(),
-                    updatedUser.getEmail(),
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.UPDATE_PROFILE,
-                    "Actualización de perfil exitosa",
+                    "Empleado actualizado",
                     httpRequest
             );
 
-            return userProfileMapper.toMeResponse(updatedUser);
+            return userProfileMapper.toStaffSessionResponse(authenticatedUser, staff);
 
         } catch (Exception ex) {
+
             saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_PROFILE,
-                    "Error al actualizar perfil: " + ex.getMessage(),
+                    "Error actualizando perfil: "
+                            + ex.getMessage(),
                     httpRequest
             );
+
             throw ex;
         }
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<UserResponse> getAllUsers() {
+    public List<UserResponse> getAllStaff() {
+
         User authenticatedUser = getAuthenticatedUser();
+
         validateOperatorOrAdmin(authenticatedUser);
 
-        return userRepository.findAll()
-                .stream()
-                .map(userProfileMapper::toUserResponse)
-                .toList();
+        List<User> users = userRepository.findByRoleIn(
+                List.of(
+                        Rol.ROLE_ADMIN,
+                        Rol.ROLE_OPERATOR
+                )
+        );
+
+        List<UserResponse> response = new ArrayList<>();
+
+        for (User user : users) {
+
+            userStaffRepository.findByUser(user)
+                    .ifPresent(staff ->
+                            response.add(
+                                    userProfileMapper.toStaffUserResponse(
+                                            user,
+                                            staff
+                                    )
+                            )
+                    );
+        }
+
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<UserResponse> getAllCustomers() {
+
+        User authenticatedUser = getAuthenticatedUser();
+
+        validateOperatorOrAdmin(authenticatedUser);
+
+        List<User> users = userRepository.findByRole(Rol.ROLE_USER);
+
+        List<UserResponse> response = new ArrayList<>();
+
+        for (User user : users) {
+
+            userCustomerRepository.findByUser(user)
+                    .ifPresent(customer ->
+                            response.add(
+                                    userProfileMapper.toCustomerUserResponse(
+                                            user,
+                                            customer
+                                    )
+                            )
+                    );
+        }
+
+        return response;
     }
 
     @Override
     @Transactional(readOnly = true)
     public UserResponse getUserById(Long id) {
+
         User authenticatedUser = getAuthenticatedUser();
+
         validateOperatorOrAdmin(authenticatedUser);
 
         User targetUser = findUserById(id);
-        return userProfileMapper.toUserResponse(targetUser);
+
+        if (targetUser.getRole() == Rol.ROLE_USER) {
+
+            UserCustomer customer = userCustomerRepository.findByUser(targetUser)
+                            .orElseThrow(() -> new ResourceNotFoundException("Cliente no encontrado"));
+
+            return userProfileMapper.toCustomerUserResponse(targetUser, customer);
+        }
+
+        UserStaff staff = userStaffRepository.findByUser(targetUser)
+                        .orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado"));
+
+        return userProfileMapper.toStaffUserResponse(targetUser, staff);
     }
 
     @Override
-    public UserResponse updateUserRole(
-            Long id,
-            UpdateUserRoleRequest request,
-            HttpServletRequest httpRequest
-    ) {
+    public UserResponse updateUserRole(Long id, UpdateUserRoleRequest request, HttpServletRequest httpRequest) {
+
         User authenticatedUser = getAuthenticatedUser();
 
         try {
+
             validateAdmin(authenticatedUser);
 
             User targetUser = findUserById(id);
-            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio rol");
+
+            validateNotSelfOperation( authenticatedUser, targetUser,"No puedes cambiar tu propio rol");
+
             validateRoleChange(targetUser, request);
 
             targetUser.setRole(request.getRole());
+
             User updatedUser = userRepository.save(targetUser);
 
             saveAuditSuccess(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ROLE,
-                    "Cambio de rol al usuario " + updatedUser.getEmail() + " a " + request.getRole().name(),
+                    "Rol actualizado a "
+                            + request.getRole().name()
+                            + " usuario: "
+                            + updatedUser.getEmail(),
                     httpRequest
             );
 
-            return userProfileMapper.toUserResponse(updatedUser);
+            return getUserById(updatedUser.getId());
 
         } catch (Exception ex) {
+
             saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ROLE,
-                    "Error al cambiar rol: " + ex.getMessage(),
+                    "Error actualizando rol: "
+                            + ex.getMessage(),
                     httpRequest
             );
+
             throw ex;
         }
     }
 
     @Override
-    public UserResponse updateUserStatus(
-            Long id,
-            UpdateUserStatusRequest request,
-            HttpServletRequest httpRequest
-    ) {
+    public UserResponse updateUserStatus(Long id, UpdateUserStatusRequest request, HttpServletRequest httpRequest) {
+
         User authenticatedUser = getAuthenticatedUser();
 
         try {
+
             validateAdmin(authenticatedUser);
 
             User targetUser = findUserById(id);
-            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio estado");
+
+            validateNotSelfOperation(authenticatedUser, targetUser,
+                    "No puedes cambiar tu propio estado"
+            );
+
             validateStatusChange(targetUser, request);
 
             targetUser.setStatus(request.getStatus());
+
             User updatedUser = userRepository.save(targetUser);
 
             saveAuditSuccess(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_USER_STATUS,
-                    "Cambio de estado al usuario " + updatedUser.getEmail() + " a " + request.getStatus().name(),
+                    "Estado actualizado a "
+                            + request.getStatus().name()
+                            + " usuario: "
+                            + updatedUser.getEmail(),
                     httpRequest
             );
 
-            return userProfileMapper.toUserResponse(updatedUser);
+            return getUserById(updatedUser.getId());
 
         } catch (Exception ex) {
+
             saveAuditFailure(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_USER_STATUS,
-                    "Error al cambiar estado de usuario: " + ex.getMessage(),
+                    "Error actualizando estado: "
+                            + ex.getMessage(),
                     httpRequest
             );
+
             throw ex;
         }
     }
 
-    private void applyProfileUpdates(User user, UpdateMyProfileRequest request) {
-        user.setFirstName(request.getFirstName());
-        user.setLastName(request.getLastName());
-        user.setPhoneNumber(request.getPhoneNumber());
-        user.setAge(request.getAge());
-        user.setGender(request.getGender());
-    }
-
     private User getAuthenticatedUser() {
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
-        if (authentication == null
-                || authentication.getName() == null
-                || !authentication.isAuthenticated()) {
+        if (authentication == null || authentication.getName() == null || !authentication.isAuthenticated()) {
+
             throw new UnauthorizedException("Usuario no autenticado");
         }
 
@@ -205,41 +330,63 @@ public class UserServiceImpl implements UserService {
 
     private void validateAdmin(User user) {
         if (user.getRole() != Rol.ROLE_ADMIN) {
+
             throw new ForbiddenException("No tienes permisos para realizar esta acción");
         }
     }
 
     private void validateOperatorOrAdmin(User user) {
+
         if (user.getRole() != Rol.ROLE_OPERATOR && user.getRole() != Rol.ROLE_ADMIN) {
+
             throw new ForbiddenException("No tienes permisos para realizar esta acción");
         }
     }
 
-    private void validateNotSelfOperation(User authenticatedUser, User targetUser, String message) {
+    private void validateNotSelfOperation(User authenticatedUser, User targetUser, String message ) {
+
         if (authenticatedUser.getId().equals(targetUser.getId())) {
+
             throw new BadRequestException(message);
         }
     }
 
     private void validateRoleChange(User targetUser, UpdateUserRoleRequest request) {
-        if (targetUser.getRole() == request.getRole()) {
-            throw new BadRequestException("El usuario ya tiene asignado ese rol");
+
+        Rol currentRole = targetUser.getRole();
+        Rol newRole = request.getRole();
+
+        if (currentRole == newRole) {
+            throw new BadRequestException(
+                    "El usuario ya tiene ese rol"
+            );
+        }
+
+        boolean currentIsStaff =
+                currentRole == Rol.ROLE_ADMIN ||
+                        currentRole == Rol.ROLE_OPERATOR;
+
+        boolean newIsStaff =
+                newRole == Rol.ROLE_ADMIN ||
+                        newRole == Rol.ROLE_OPERATOR;
+
+        if (!currentIsStaff || !newIsStaff) {
+            throw new BadRequestException(
+                    "Solo se permite cambio entre ADMIN y OPERATOR"
+            );
         }
     }
 
     private void validateStatusChange(User targetUser, UpdateUserStatusRequest request) {
+
         if (targetUser.getStatus() == request.getStatus()) {
-            throw new BadRequestException("El usuario ya tiene asignado ese estado");
+
+            throw new BadRequestException("El usuario ya tiene ese estado");
         }
     }
 
-    private void saveAuditSuccess(
-            Long userId,
-            String email,
-            AuditAction action,
-            String description,
-            HttpServletRequest httpRequest
-    ) {
+    private void saveAuditSuccess(Long userId, String email, AuditAction action, String description, HttpServletRequest httpRequest) {
+
         auditLogService.save(
                 userId,
                 email,
@@ -250,13 +397,8 @@ public class UserServiceImpl implements UserService {
         );
     }
 
-    private void saveAuditFailure(
-            Long userId,
-            String email,
-            AuditAction action,
-            String description,
-            HttpServletRequest httpRequest
-    ) {
+    private void saveAuditFailure(Long userId, String email, AuditAction action, String description, HttpServletRequest httpRequest) {
+
         auditLogService.save(
                 userId,
                 email,

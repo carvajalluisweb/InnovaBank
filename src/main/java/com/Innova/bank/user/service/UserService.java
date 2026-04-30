@@ -15,7 +15,9 @@ public interface UserService {
 
     ActualSessionResponse updateMyProfile(UpdateMyProfileRequest request, HttpServletRequest httpRequest);
 
-    List<UserResponse> getAllUsers();
+    List<UserResponse> getAllStaff();
+
+    List<UserResponse> getAllCustomers();
 
     UserResponse getUserById(Long id);
 

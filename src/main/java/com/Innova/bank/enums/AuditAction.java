@@ -1,7 +1,8 @@
 package com.Innova.bank.enums;
 
 public enum AuditAction {
-    REGISTER,
+    REGISTER_CUSTOMER,
+    REGISTER_STAFF,
     LOGIN,
     LOGOUT,
     REFRESH_TOKEN,

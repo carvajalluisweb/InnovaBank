@@ -80,7 +80,7 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     public AccountResponse createAccount(CreateAccountRequest request, HttpServletRequest httpRequest) {
-        User authenticatedUser = getAuthenticatedUser();
+       /* User authenticatedUser = getAuthenticatedUser();
 
         try {
             validateRolUser(authenticatedUser);
@@ -115,7 +115,9 @@ public class AccountServiceImpl implements AccountService {
                     httpRequest
             );
             throw exception;
-        }
+        }*/
+
+        return null;
     }
 
     @Override

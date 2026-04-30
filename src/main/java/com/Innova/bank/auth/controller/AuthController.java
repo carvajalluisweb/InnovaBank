@@ -16,17 +16,33 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @PostMapping("/register")
-    public ResponseEntity<ApiResponse<Void>> register(
-            @Valid @RequestBody RegisterRequest request,
+    @PostMapping("/register-customer")
+    public ResponseEntity<ApiResponse<Void>> registerCustomer(
+            @Valid @RequestBody RegisterCustomerRequest request,
             HttpServletRequest httpRequest
     ) {
-        authService.register(request, httpRequest);
+        authService.registerCustomer(request, httpRequest);
 
         return ResponseEntity.ok(
                 ApiResponse.<Void>builder()
                         .success(true)
-                        .message("Usuario registrado correctamente. Ahora puede iniciar sesión.")
+                        .message("Cliente registrado correctamente. Ahora puede iniciar sesión.")
+                        .data(null)
+                        .build()
+        );
+    }
+
+    @PostMapping("/register-staff")
+    public ResponseEntity<ApiResponse<Void>> registerStaff(
+            @Valid @RequestBody RegisterStaffRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        authService.registerStaff(request, httpRequest);
+
+        return ResponseEntity.ok(
+                ApiResponse.<Void>builder()
+                        .success(true)
+                        .message("Empleado registrado correctamente. Ahora puede iniciar sesión.")
                         .data(null)
                         .build()
         );

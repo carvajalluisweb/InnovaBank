@@ -1,20 +1,33 @@
 package com.Innova.bank.auth.dto;
-import lombok.*;
+
+import lombok.Builder;
+import lombok.Getter;
 
 @Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class ActualSessionResponse {
-    private Long id;
-    private String idNumber;
-    private String firstName;
-    private String lastName;
+
+    private Long userId;
+
     private String email;
-    private String phoneNumber;
-    private Integer age;
-    private String gender;
+
     private String role;
+
     private String status;
+
+    private String firstName;
+
+    private String lastName;
+
+    private String phoneNumber;
+
+    private String idNumber;
+
+    private String gender;
+
+    private Integer age;
+
+    private String position;
+
+    private String department;
 }
