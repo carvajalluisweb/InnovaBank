@@ -96,17 +96,4 @@ public class AuthController {
         );
     }
 
-    @GetMapping("/actualSession")
-    public ResponseEntity<ApiResponse<ActualSessionResponse>> me() {
-
-        ActualSessionResponse meResponse = authService.actualSession();
-
-        return ResponseEntity.ok(
-                ApiResponse.<ActualSessionResponse>builder()
-                        .success(true)
-                        .message("Usuario autenticado obtenido correctamente")
-                        .data(meResponse)
-                        .build()
-        );
-    }
 }

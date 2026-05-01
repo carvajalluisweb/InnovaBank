@@ -14,4 +14,6 @@ public interface SessionTokenRepository extends JpaRepository<SessionToken, Long
     Optional<SessionToken> findByRefreshTokenAndActiveTrue(String refreshToken);
 
     Optional<SessionToken> findBySessionIdAndActiveTrue(String sessionId);
+
+    Optional<SessionToken> findByRefreshToken(String refreshToken);
 }

@@ -15,5 +15,4 @@ public interface AuthService {
 
     void logout(String authHeader, HttpServletRequest httpRequest);
 
-    ActualSessionResponse actualSession();
 }

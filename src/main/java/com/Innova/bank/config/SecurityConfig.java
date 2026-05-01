@@ -42,7 +42,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
 
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/actualSession").authenticated()
 
                         .requestMatchers(HttpMethod.POST,"/api/auth/register-customer")
                         .hasAnyAuthority(Rol.ROLE_OPERATOR.name(),Rol.ROLE_ADMIN.name())

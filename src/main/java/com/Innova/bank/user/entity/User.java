@@ -5,6 +5,8 @@ import com.Innova.bank.enums.UserStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "users")
 @Getter
@@ -31,6 +33,11 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private UserStatus status;
+
+    @Column(nullable = false)
+    private Integer failedAttempts = 0;
+
+    private LocalDateTime blockedAt;
 
     @PrePersist
     public void prePersist() {

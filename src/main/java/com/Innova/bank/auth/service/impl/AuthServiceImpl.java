@@ -1,6 +1,9 @@
     package com.Innova.bank.auth.service.impl;
 
     import com.Innova.bank.audit.service.AuditLogService;
+    import com.Innova.bank.auth.repository.SessionTokenRepository;
+    import com.Innova.bank.auth.service.AuthAttemptService;
+    import com.Innova.bank.common.exception.ForbiddenException;
     import com.Innova.bank.common.exception.UnauthorizedException;
     import com.Innova.bank.enums.*;
     import com.Innova.bank.user.entity.UserCustomer;
@@ -45,9 +48,10 @@
         private final SessionService sessionService;
         private final TokenService tokenService;
         private final AuditLogService auditLogService;
-        private final UserMapper userMapper;
         private final AuthMapper authMapper;
-        private final UserProfileMapper userProfileMapper;
+        private final AuthAttemptService authAttemptService;
+        private final SessionTokenRepository sessionTokenRepository;
+
 
         @Override
         @Transactional
@@ -199,34 +203,52 @@
         @Override
         @Transactional
         public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
+
+            User user = userRepository.findByEmail(request.getEmail())
+                    .orElseThrow(() -> new BadRequestException("Credenciales inválidas"));
+
+            if (user.getStatus() == UserStatus.BLOCKED) {
+                throw new ForbiddenException("Usuario bloqueado. Contacte al administrador");
+            }
+
             try {
-                authenticationManager.authenticate(
-                        new UsernamePasswordAuthenticationToken(
-                                request.getEmail(),
-                                request.getPassword()
-                        )
-                );
+
+                authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+
             } catch (Exception ex) {
+
+                authAttemptService.increaseFailedAttempts(user);
+
+                User updatedUser = userRepository.findById(user.getId()).orElseThrow();
+
                 auditLogService.save(
-                        null,
-                        request.getEmail(),
+                        user.getId(),
+                        user.getEmail(),
                         AuditAction.FAILED_LOGIN,
                         "Intento de inicio de sesión fallido",
                         AuditStatus.FAILED,
                         httpRequest
                 );
-                throw new BadRequestException("Credenciales inválidas");
+
+                if (updatedUser.getStatus() == UserStatus.BLOCKED) {
+                    throw new ForbiddenException("Usuario bloqueado por múltiples intentos fallidos. Contacte al administrador");
+                }
+
+                int remainingAttempts = 3 - updatedUser.getFailedAttempts();
+
+                throw new BadRequestException("Credenciales inválidas. Intentos restantes: " + remainingAttempts);
             }
 
-            User user = userRepository.findByEmail(request.getEmail())
-                    .orElseThrow(() -> new BadRequestException("Credenciales inválidas"));
+            authAttemptService.resetFailedAttempts(user);
 
             sessionService.deactivateAllUserSessions(user);
 
-            UserDetails userDetails = buildUserDetails(user);
+            UserDetails userDetails =  buildUserDetails(user);
+
             String sessionId = UUID.randomUUID().toString();
 
             String accessToken = tokenService.generateAccessToken(userDetails, sessionId);
+
             String refreshToken = tokenService.generateRefreshToken(userDetails, sessionId);
 
             sessionService.createSession(user, sessionId, accessToken, refreshToken);
@@ -251,40 +273,66 @@
         @Override
         @Transactional
         public AuthResponse refreshToken(RefreshTokenRequest request, HttpServletRequest httpRequest) {
-            SessionToken sessionToken = sessionService.findActiveByRefreshToken(request.getRefreshToken());
+
+            SessionToken sessionToken;
+
+            try {
+
+                sessionToken = sessionService.findActiveByRefreshToken(request.getRefreshToken());
+
+            } catch (Exception ex) {
+
+                handleRefreshSecurityIncident(request.getRefreshToken(), httpRequest);
+
+                throw new UnauthorizedException("Refresh token inválido");
+            }
 
             if (sessionToken.getRefreshExpiresAt().isBefore(LocalDateTime.now())) {
+
                 sessionService.deactivateSession(sessionToken);
 
                 auditLogService.save(
                         sessionToken.getUser().getId(),
                         sessionToken.getUser().getEmail(),
                         AuditAction.REFRESH_TOKEN,
-                        "Intento de renovación con refresh token expirado",
+                        "Refresh token expirado",
                         AuditStatus.FAILED,
                         httpRequest
                 );
 
-                throw new UnauthorizedException("El refresh token ha expirado");
+                throw new UnauthorizedException(
+                        "Refresh token expirado"
+                );
             }
 
             User user = sessionToken.getUser();
+
+            if (user.getStatus() == UserStatus.BLOCKED) {
+                throw new ForbiddenException("Usuario bloqueado");
+            }
+
             UserDetails userDetails = buildUserDetails(user);
 
             if (!tokenService.isTokenValid(request.getRefreshToken(), userDetails)) {
+
+                sessionService.deactivateAllUserSessions(user);
+
                 auditLogService.save(
                         user.getId(),
                         user.getEmail(),
                         AuditAction.REFRESH_TOKEN,
-                        "Intento de renovación con refresh token inválido",
+                        "Intento de reutilización o manipulación de refresh token",
                         AuditStatus.FAILED,
                         httpRequest
                 );
 
-                throw new UnauthorizedException("Refresh token inválido");
+                throw new UnauthorizedException(
+                        "Refresh token inválido"
+                );
             }
 
             String newAccessToken = tokenService.generateAccessToken(userDetails, sessionToken.getSessionId());
+
             sessionService.updateAccessToken(sessionToken, newAccessToken);
 
             auditLogService.save(
@@ -296,58 +344,7 @@
                     httpRequest
             );
 
-            return authMapper.toAuthResponse(
-                    newAccessToken,
-                    sessionToken.getRefreshToken(),
-                    tokenService.getAccessExpiration(),
-                    tokenService.getRefreshExpiration()
-            );
-        }
-
-        @Override
-        @Transactional(readOnly = true)
-        public ActualSessionResponse actualSession() {
-
-            User authenticatedUser = getAuthenticatedUser();
-
-            if (authenticatedUser.getRole() == Rol.ROLE_USER) {
-
-                UserCustomer customer = userCustomerRepository.findByUser(authenticatedUser)
-                                .orElseThrow(() ->
-                                        new ResourceNotFoundException("Cliente no encontrado"));
-
-                return ActualSessionResponse.builder()
-                        .userId(authenticatedUser.getId())
-                        .email(authenticatedUser.getEmail())
-                        .role(authenticatedUser.getRole().name())
-                        .status(authenticatedUser.getStatus().name())
-                        .firstName(customer.getFirstName())
-                        .lastName(customer.getLastName())
-                        .phoneNumber(customer.getPhoneNumber())
-                        .idNumber(customer.getIdNumber())
-                        .gender(customer.getGender().name())
-                        .age(customer.getAge())
-                        .build();
-            }
-
-            UserStaff staff = userStaffRepository.findByUser(authenticatedUser)
-                            .orElseThrow(() ->
-                                    new ResourceNotFoundException("Empleado no encontrado"));
-
-            return ActualSessionResponse.builder()
-                    .userId(authenticatedUser.getId())
-                    .email(authenticatedUser.getEmail())
-                    .role(authenticatedUser.getRole().name())
-                    .status(authenticatedUser.getStatus().name())
-                    .firstName(staff.getFirstName())
-                    .lastName(staff.getLastName())
-                    .phoneNumber(staff.getPhoneNumber())
-                    .idNumber(staff.getIdNumber())
-                    .gender(staff.getGender().name())
-                    .age(staff.getAge())
-                    .position(staff.getPosition())
-                    .department(staff.getDepartment())
-                    .build();
+            return authMapper.toAuthResponse(newAccessToken, sessionToken.getRefreshToken(), tokenService.getAccessExpiration(), tokenService.getRefreshExpiration());
         }
 
         @Override
@@ -487,5 +484,24 @@
             }
         }
 
+        private void handleRefreshSecurityIncident(String refreshToken, HttpServletRequest httpRequest) {
+
+            sessionTokenRepository.findByRefreshToken(refreshToken)
+                    .ifPresent(sessionToken -> {
+
+                        User user = sessionToken.getUser();
+
+                        sessionService.deactivateAllUserSessions(user);
+
+                        auditLogService.save(
+                                user.getId(),
+                                user.getEmail(),
+                                AuditAction.REFRESH_TOKEN,
+                                "Refresh token sospechoso detectado. Todas las sesiones cerradas",
+                                AuditStatus.FAILED,
+                                httpRequest
+                        );
+                    });
+        }
 
     }

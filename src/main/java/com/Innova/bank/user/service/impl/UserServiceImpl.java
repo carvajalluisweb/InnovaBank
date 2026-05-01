@@ -6,9 +6,7 @@ import com.Innova.bank.common.exception.BadRequestException;
 import com.Innova.bank.common.exception.ForbiddenException;
 import com.Innova.bank.common.exception.ResourceNotFoundException;
 import com.Innova.bank.common.exception.UnauthorizedException;
-import com.Innova.bank.enums.AuditAction;
-import com.Innova.bank.enums.AuditStatus;
-import com.Innova.bank.enums.Rol;
+import com.Innova.bank.enums.*;
 import com.Innova.bank.user.dto.UpdateMyProfileRequest;
 import com.Innova.bank.user.dto.UpdateUserRoleRequest;
 import com.Innova.bank.user.dto.UpdateUserStatusRequest;
@@ -225,13 +223,22 @@ public class UserServiceImpl implements UserService {
 
             User targetUser = findUserById(id);
 
-            validateNotSelfOperation( authenticatedUser, targetUser,"No puedes cambiar tu propio rol");
+            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio rol");
 
             validateRoleChange(targetUser, request);
 
+            UserStaff staff = userStaffRepository.findByUser(targetUser)
+                    .orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado"));
+
             targetUser.setRole(request.getRole());
 
+            Position newPosition = resolvePositionByRole(request.getRole());
+
+            staff.setPosition(newPosition.name());
+            staff.setEmployeeCode(generateEmployeeCode(newPosition, staff.getId()));
+
             User updatedUser = userRepository.save(targetUser);
+            UserStaff updatedStaff = userStaffRepository.save(staff);
 
             saveAuditSuccess(
                     authenticatedUser.getId(),
@@ -239,12 +246,14 @@ public class UserServiceImpl implements UserService {
                     AuditAction.UPDATE_ROLE,
                     "Rol actualizado a "
                             + request.getRole().name()
-                            + " usuario: "
+                            + " | Nueva posición: "
+                            + newPosition.name()
+                            + " | Usuario: "
                             + updatedUser.getEmail(),
                     httpRequest
             );
 
-            return getUserById(updatedUser.getId());
+            return userProfileMapper.toStaffUserResponse(updatedUser, updatedStaff);
 
         } catch (Exception ex) {
 
@@ -252,8 +261,7 @@ public class UserServiceImpl implements UserService {
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ROLE,
-                    "Error actualizando rol: "
-                            + ex.getMessage(),
+                    "Error actualizando rol: " + ex.getMessage(),
                     httpRequest
             );
 
@@ -272,28 +280,44 @@ public class UserServiceImpl implements UserService {
 
             User targetUser = findUserById(id);
 
-            validateNotSelfOperation(authenticatedUser, targetUser,
-                    "No puedes cambiar tu propio estado"
-            );
+            validateNotSelfOperation(authenticatedUser, targetUser, "No puedes cambiar tu propio estado");
 
             validateStatusChange(targetUser, request);
 
             targetUser.setStatus(request.getStatus());
+
+            AuditAction action;
+            String description;
+
+            if (request.getStatus() == UserStatus.ACTIVE) {
+
+                targetUser.setFailedAttempts(0);
+                targetUser.setBlockedAt(null);
+
+                action = AuditAction.USER_UNBLOCKED;
+
+                description = "Usuario desbloqueado: " + targetUser.getEmail();
+
+            } else {
+
+                action = AuditAction.UPDATE_USER_STATUS;
+
+                description = "Estado actualizado a " + request.getStatus().name()  + " usuario: " + targetUser.getEmail();
+            }
 
             User updatedUser = userRepository.save(targetUser);
 
             saveAuditSuccess(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
-                    AuditAction.UPDATE_USER_STATUS,
-                    "Estado actualizado a "
-                            + request.getStatus().name()
-                            + " usuario: "
-                            + updatedUser.getEmail(),
+                    action,
+                    description,
                     httpRequest
             );
 
-            return getUserById(updatedUser.getId());
+            return getUserById(
+                    updatedUser.getId()
+            );
 
         } catch (Exception ex) {
 
@@ -407,5 +431,31 @@ public class UserServiceImpl implements UserService {
                 AuditStatus.FAILED,
                 httpRequest
         );
+    }
+
+    private Position resolvePositionByRole(Rol role) {
+
+        if (role == Rol.ROLE_ADMIN) {
+            return Position.GENERAL_MANAGER;
+        }
+
+        if (role == Rol.ROLE_OPERATOR) {
+            return Position.TELLER;
+        }
+
+        throw new BadRequestException(
+                "Solo se permite cambio entre ADMIN y OPERATOR"
+        );
+    }
+
+    private String generateEmployeeCode(Position position, Long id) {
+
+        String prefix = switch (position) {
+            case GENERAL_MANAGER -> "GM";
+            case TELLER -> "TEL";
+            case CUSTOMER_SERVICE -> "CSR";
+        };
+
+        return prefix + "-" + String.format("%04d", id);
     }
 }
