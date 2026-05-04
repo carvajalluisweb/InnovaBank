@@ -8,18 +8,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuditLogMapper {
 
-    public AuditLog toEntity(
-            Long userId,
-            String email,
-            AuditAction action,
-            String description,
-            AuditStatus status,
-            String ipAddress,
-            String endpoint,
-            String httpMethod,
-            String userAgent,
-            String requestId
-    ) {
+    public AuditLog toEntity(Long userId, String email, AuditAction action, String description, AuditStatus status,
+            String ipAddress, String endpoint, String httpMethod, String userAgent, String requestId) {
+
         return AuditLog.builder()
                 .userId(userId)
                 .email(email)

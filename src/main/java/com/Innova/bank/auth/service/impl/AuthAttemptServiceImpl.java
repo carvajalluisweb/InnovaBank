@@ -1,6 +1,7 @@
 package com.Innova.bank.auth.service.impl;
 
 import com.Innova.bank.auth.service.AuthAttemptService;
+import com.Innova.bank.common.constant.ValidationConstants;
 import com.Innova.bank.enums.UserStatus;
 import com.Innova.bank.user.entity.User;
 import com.Innova.bank.user.repository.UserRepository;
@@ -21,15 +22,13 @@ public class AuthAttemptServiceImpl implements AuthAttemptService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void increaseFailedAttempts(User user) {
 
-        User managedUser = userRepository.findById(user.getId())
-                .orElseThrow();
+        User managedUser = userRepository.findById(user.getId()).orElseThrow();
 
-        int attempts =
-                managedUser.getFailedAttempts() + 1;
+        int attempts = managedUser.getFailedAttempts() + 1;
 
         managedUser.setFailedAttempts(attempts);
 
-        if (attempts >= 3) {
+        if (attempts >= ValidationConstants.MAX_LOGIN_ATTEMPTS){
             managedUser.setStatus(UserStatus.BLOCKED);
             managedUser.setBlockedAt(LocalDateTime.now());
         }
@@ -41,8 +40,7 @@ public class AuthAttemptServiceImpl implements AuthAttemptService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void resetFailedAttempts(User user) {
 
-        User managedUser = userRepository.findById(user.getId())
-                .orElseThrow();
+        User managedUser = userRepository.findById(user.getId()).orElseThrow();
 
         managedUser.setFailedAttempts(0);
         managedUser.setBlockedAt(null);

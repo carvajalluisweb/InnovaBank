@@ -30,7 +30,7 @@ public class AuditLog {
     @Column(nullable = false, length = 50)
     private AuditAction action;
 
-    @Column(nullable = false, length = 255)
+    @Column(nullable = false, length = 500)
     private String description;
 
     @Column(name = "ip_address", length = 50)
@@ -43,7 +43,7 @@ public class AuditLog {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column(length = 255)
+    @Column(length = 300)
     private String endpoint;
 
     @Column(name = "http_method", length = 10)

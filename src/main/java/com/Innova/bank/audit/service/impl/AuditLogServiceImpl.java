@@ -23,32 +23,15 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void save(
-            Long userId,
-            String email,
-            AuditAction action,
-            String description,
-            AuditStatus status,
-            HttpServletRequest request
-    ) {
+    public void save(Long userId, String email, AuditAction action, String description, AuditStatus status, HttpServletRequest request) {
         String ipAddress = getClientIp(request);
         String endpoint = getEndpoint(request);
         String httpMethod = getHttpMethod(request);
         String userAgent = getUserAgent(request);
         String requestId = getRequestId(request);
 
-        AuditLog auditLog = auditLogMapper.toEntity(
-                userId,
-                email,
-                action,
-                description,
-                status,
-                ipAddress,
-                endpoint,
-                httpMethod,
-                userAgent,
-                requestId
-        );
+        AuditLog auditLog = auditLogMapper.toEntity(userId, email, action, description, status, ipAddress, endpoint, httpMethod,
+                userAgent, requestId);
 
         auditLogRepository.save(auditLog);
     }

@@ -2,6 +2,8 @@ package com.Innova.bank.auth.security;
 
 import com.Innova.bank.auth.service.SessionService;
 import com.Innova.bank.auth.service.TokenService;
+import com.Innova.bank.common.constant.RequestConstants;
+import com.Innova.bank.common.constant.SecurityConstants;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -27,22 +29,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final SessionService sessionService;
 
     @Override
-    protected void doFilterInternal(
-            @NonNull HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull FilterChain filterChain
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
 
-        final String authHeader = request.getHeader("Authorization");
+        final String authHeader = request.getHeader(RequestConstants.AUTHORIZATION_HEADER);
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        if (authHeader == null || authHeader.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        final String jwt = authHeader.substring(7);
+        if (!authHeader.startsWith(SecurityConstants.BEARER_PREFIX)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String jwt = authHeader.substring(SecurityConstants.BEARER_PREFIX.length());
 
         try {
+
             String tokenType = tokenService.extractTokenType(jwt);
 
             if (!"ACCESS".equals(tokenType)) {
@@ -51,6 +56,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             String email = tokenService.extractUsername(jwt);
+
             String sessionId = tokenService.extractSessionId(jwt);
 
             if (!sessionService.isSessionActive(sessionId)) {
@@ -59,24 +65,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
                 UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
 
                 if (tokenService.isTokenValid(jwt, userDetails)) {
-                    UsernamePasswordAuthenticationToken authToken =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities()
-                            );
 
-                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
+
+                    authToken.setDetails( new WebAuthenticationDetailsSource().buildDetails(request));
+
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
 
         } catch (JwtException | IllegalArgumentException ex) {
+
             SecurityContextHolder.clearContext();
+
         } catch (Exception ex) {
+
             SecurityContextHolder.clearContext();
         }
 
