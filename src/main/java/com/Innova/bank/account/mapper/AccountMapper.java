@@ -13,9 +13,10 @@ import java.util.Random;
 @Component
 public class AccountMapper {
 
-    public Account toEntity(CreateAccountRequest request, User user){
+    public Account toEntity(CreateAccountRequest request, User user, String accountNumber) {
+
         return Account.builder()
-                .accountNumber(generateAccountNumber())
+                .accountNumber(accountNumber)
                 .accountType(request.getAccountType())
                 .balance(request.getInitialBalance() != null ? request.getInitialBalance() : BigDecimal.ZERO)
                 .status(AccountStatus.ACTIVE)

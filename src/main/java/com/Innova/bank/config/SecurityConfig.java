@@ -30,78 +30,65 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth
 
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+        http.cors(Customizer.withDefaults()).csrf(csrf -> csrf.disable()).authorizeHttpRequests(
+                auth -> auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/").permitAll()
-
+                        // AUTH
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
-
                         .requestMatchers(HttpMethod.POST, "/api/auth/logout").authenticated()
 
-                        .requestMatchers(HttpMethod.POST,"/api/auth/register-customer")
-                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(),Rol.ROLE_ADMIN.name())
-                        .requestMatchers(HttpMethod.POST,"/api/auth/register-staff")
+                        .requestMatchers(HttpMethod.POST, "/api/auth/register-customer")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/auth/register-staff")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
 
+                        // USERS
                         .requestMatchers(HttpMethod.GET, "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/users/me").authenticated()
-
-                        .requestMatchers(HttpMethod.GET, "/api/users")
+                        .requestMatchers(HttpMethod.GET, "/api/users/customers")
                         .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
+                        .requestMatchers(HttpMethod.GET, "/api/users/staff")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/api/users/*")
                         .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
                         .requestMatchers(HttpMethod.PATCH, "/api/users/*/role")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
-
                         .requestMatchers(HttpMethod.PATCH, "/api/users/*/status")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.GET, "/api/accounts/me")
+                        // ACCOUNTS
+                        .requestMatchers(HttpMethod.GET,"/api/accounts/me")
                         .hasAuthority(Rol.ROLE_USER.name())
-
                         .requestMatchers(HttpMethod.GET, "/api/accounts/me/*")
                         .hasAuthority(Rol.ROLE_USER.name())
-
-                        .requestMatchers(HttpMethod.GET, "/api/accounts/allAccounts")
-                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
+                        .requestMatchers(HttpMethod.GET, "/api/accounts")
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(),Rol.ROLE_ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/api/accounts/*")
                         .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
-                        .requestMatchers(HttpMethod.POST, "/api/accounts/createAccount")
+                        .requestMatchers(HttpMethod.POST, "/api/accounts")
                         .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
                         .requestMatchers(HttpMethod.PATCH, "/api/accounts/*/status")
                         .hasAuthority(Rol.ROLE_ADMIN.name())
 
+                        // TRANSACTIONS
                         .requestMatchers(HttpMethod.POST, "/api/transactions/transfer")
                         .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
                         .requestMatchers(HttpMethod.POST, "/api/transactions/deposit")
-                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
+                        .hasAnyAuthority(Rol.ROLE_OPERATOR.name(),Rol.ROLE_ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/api/transactions/withdrawal")
                         .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
-
                         .requestMatchers(HttpMethod.GET, "/api/transactions/me")
                         .hasAuthority(Rol.ROLE_USER.name())
-
                         .requestMatchers(HttpMethod.GET, "/api/transactions/account/*")
-                        .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name())
+                        .hasAnyAuthority(Rol.ROLE_USER.name(), Rol.ROLE_OPERATOR.name(), Rol.ROLE_ADMIN.name()).anyRequest().authenticated()
+                )
 
-                        .anyRequest().authenticated()
-                )
                 .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-                .authenticationProvider(authenticationProvider())
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)).authenticationProvider(authenticationProvider())
+
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -109,18 +96,23 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
+
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(customUserDetailsService);
+
         provider.setPasswordEncoder(passwordEncoder());
+
         return provider;
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
+
         return new BCryptPasswordEncoder();
     }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+
         return config.getAuthenticationManager();
     }
 }

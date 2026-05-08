@@ -7,17 +7,20 @@ import com.Innova.bank.account.entity.Account;
 import com.Innova.bank.account.mapper.AccountMapper;
 import com.Innova.bank.account.repository.AccountRepository;
 import com.Innova.bank.account.service.AccountService;
-import com.Innova.bank.audit.service.AuditLogService;
-import com.Innova.bank.common.exception.BadRequestException;
-import com.Innova.bank.common.exception.ResourceNotFoundException;
-import com.Innova.bank.common.exception.UnauthorizedException;
-import com.Innova.bank.enums.*;
+import com.Innova.bank.common.audit.AuditFacade;
+import com.Innova.bank.common.constant.MessageConstants;
+import com.Innova.bank.common.exception.ExceptionFactory;
+import com.Innova.bank.common.security.AuthorizationService;
+import com.Innova.bank.common.security.CurrentUserService;
+import com.Innova.bank.common.validation.AccountValidationService;
+import com.Innova.bank.common.validation.UserValidationService;
+import com.Innova.bank.enums.AccountStatus;
+import com.Innova.bank.enums.AuditAction;
 import com.Innova.bank.user.entity.User;
-import com.Innova.bank.user.repository.UserRepository;
+import com.Innova.bank.user.entity.UserCustomer;
+import com.Innova.bank.user.repository.UserCustomerRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,17 +32,28 @@ import java.util.List;
 public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository accountRepository;
-    private final UserRepository userRepository;
+    private final UserCustomerRepository userCustomerRepository;
     private final AccountMapper accountMapper;
-    private final AuditLogService auditLogService;
 
+    private final CurrentUserService currentUserService;
+    private final AuthorizationService authorizationService;
+
+    private final UserValidationService userValidationService;
+    private final AccountValidationService accountValidationService;
+
+    private final AuditFacade auditFacade;
+    private final ExceptionFactory exceptionFactory;
 
     @Override
     @Transactional(readOnly = true)
     public List<AccountResponse> getMyAccounts() {
-        User authenticatedUser = getAuthenticatedUser();
 
-        return accountRepository.findByUser(authenticatedUser)
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        userValidationService.validateActive(authenticatedUser);
+
+        return accountRepository
+                .findByUser(authenticatedUser)
                 .stream()
                 .map(accountMapper::toResponse)
                 .toList();
@@ -48,10 +62,13 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional(readOnly = true)
     public AccountResponse getMyAccountByAccountNumber(String accountNumber) {
-        User authenticatedUser = getAuthenticatedUser();
+
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        userValidationService.validateActive(authenticatedUser);
 
         Account account = accountRepository.findByAccountNumberAndUser(accountNumber, authenticatedUser)
-                .orElseThrow(() -> new ResourceNotFoundException("Cuenta no encontrada"));
+                        .orElseThrow(() -> exceptionFactory.notFound("Cuenta no encontrada"));
 
         return accountMapper.toResponse(account);
     }
@@ -59,138 +76,142 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional(readOnly = true)
     public List<AccountResponse> getAllAccounts() {
-        User authenticatedUser = getAuthenticatedUser();
-        validateRolUser(authenticatedUser);
 
-        return accountRepository.findAll()
-                .stream()
-                .map(accountMapper::toResponse)
-                .toList();
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        authorizationService.requireOperatorOrAdmin(authenticatedUser);
+
+        return accountRepository.findAll().stream().map(accountMapper::toResponse).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     public AccountResponse getAccountByAccountNumber(String accountNumber) {
-        User authenticatedUser = getAuthenticatedUser();
-        validateRolUser(authenticatedUser);
 
-        Account account = findAccountByAccountNumber(accountNumber);
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        authorizationService.requireOperatorOrAdmin(authenticatedUser);
+
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                        .orElseThrow(() -> exceptionFactory.notFound("Cuenta no encontrada"));
+
         return accountMapper.toResponse(account);
     }
 
     @Override
     public AccountResponse createAccount(CreateAccountRequest request, HttpServletRequest httpRequest) {
-       /* User authenticatedUser = getAuthenticatedUser();
+
+        User authenticatedUser = currentUserService.getCurrentUser();
 
         try {
-            validateRolUser(authenticatedUser);
 
-            User targetUser = userRepository.findByIdNumber(request.getUserIdNumber())
-                    .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con cédula: " + request.getUserIdNumber()));
+            authorizationService.requireOperatorOrAdmin(authenticatedUser);
 
-            if (targetUser.getStatus() != UserStatus.ACTIVE) {
-                throw new BadRequestException("El usuario no esta activo");
-            }
-            Account account = accountMapper.toEntity(request, targetUser);
+            UserCustomer customer = userCustomerRepository.findByIdNumber(request.getUserIdNumber())
+                            .orElseThrow(() -> exceptionFactory.notFound(MessageConstants.NOT_FOUND_CLIENT));
+
+            User targetUser = customer.getUser();
+
+            userValidationService.validateActive(targetUser);
+
+            accountValidationService.validateInitialBalance(request.getInitialBalance());
+
+            accountValidationService.validateUniqueAccountType(targetUser, request.getAccountType());
+
+            String accountNumber = accountValidationService.generateUniqueAccountNumber();
+
+            Account account = accountMapper.toEntity(request, targetUser, accountNumber);
+
             Account savedAccount = accountRepository.save(account);
 
-            auditLogService.save(
+            auditFacade.success(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.CREATE_ACCOUNT,
-                    "Cuenta creada para usuario" + targetUser.getFirstName() + targetUser.getLastName(),
-                    AuditStatus.SUCCESS,
+                    "Cuenta creada | Cuenta: "
+                            + savedAccount.getAccountNumber()
+                            + " | Cliente: "
+                            + customer.getIdNumber(),
                     httpRequest
             );
 
             return accountMapper.toResponse(savedAccount);
 
-        } catch (Exception exception) {
-            auditLogService.save(
+        } catch (Exception ex) {
+
+            auditFacade.failed(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.CREATE_ACCOUNT,
-                    "Error al crear cuenta: " + exception.getMessage(),
-                    AuditStatus.FAILED,
+                    "Error creando cuenta | Cliente: "
+                            + request.getUserIdNumber()
+                            + " | Error: "
+                            + ex.getMessage(),
                     httpRequest
             );
-            throw exception;
-        }*/
 
-        return null;
+            throw ex;
+        }
     }
 
     @Override
     public AccountResponse updateAccountStatus(String accountNumber, UpdateAccountStatusRequest request, HttpServletRequest httpRequest) {
-        User authenticatedUser = getAuthenticatedUser();
+
+        User authenticatedUser = currentUserService.getCurrentUser();
 
         try {
-            validateAdmin(authenticatedUser);
 
-            Account account = findAccountByAccountNumber(accountNumber);
+            authorizationService.requireAdmin(authenticatedUser);
+
+            Account account = accountRepository.findByAccountNumber(accountNumber)
+                    .orElseThrow(() -> exceptionFactory.notFound("Cuenta no encontrada"));
 
             if (account.getStatus() == request.getStatus()) {
-                throw new BadRequestException("La cuentea ya tiene ese estado");
+
+                throw exceptionFactory.badRequest("La cuenta ya tiene ese estado");
             }
 
             if (account.getStatus() == AccountStatus.CLOSED) {
-                throw new BadRequestException("No se puede modificar una cuenta cerrada;");
+
+                throw exceptionFactory.badRequest("No se puede modificar una cuenta cerrada");
+            }
+
+            if (request.getStatus() == AccountStatus.CLOSED) {
+
+                accountValidationService.validateClosable(account);
             }
 
             account.setStatus(request.getStatus());
-            Account updateAccount = accountRepository.save(account);
 
-            auditLogService.save(
+            Account updatedAccount = accountRepository.save(account);
+
+            auditFacade.success(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ACCOUNT_STATUS,
-                    "Estado de cuanta actualizado a " + request.getStatus().name(),
-                    AuditStatus.SUCCESS,
+                    "Estado cuenta actualizado | Cuenta: "
+                            + account.getAccountNumber()
+                            + " | Estado: "
+                            + request.getStatus().name(),
                     httpRequest
             );
 
-            return accountMapper.toResponse(updateAccount);
+            return accountMapper.toResponse(updatedAccount);
 
-        } catch (Exception exception) {
-            auditLogService.save(
+        } catch (Exception ex) {
+
+            auditFacade.failed(
                     authenticatedUser.getId(),
                     authenticatedUser.getEmail(),
                     AuditAction.UPDATE_ACCOUNT_STATUS,
-                    "Error al Actualizar estado de cuenta: " + exception.getMessage(),
-                    AuditStatus.FAILED,
+                    "Error actualizando estado cuenta | Cuenta: "
+                            + accountNumber
+                            + " | Error: "
+                            + ex.getMessage(),
                     httpRequest
             );
-            throw exception;
-        }
-    }
 
-    private User getAuthenticatedUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null
-                || authentication.getName() == null
-                || !authentication.isAuthenticated()) {
-            throw new UnauthorizedException("Usuario no autenticado");
-        }
-
-        return userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-    }
-
-    private Account findAccountByAccountNumber(String accountNumber) {
-        return accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Numero de Cuenta" + accountNumber + "No encontrada"));
-    }
-
-    private void validateAdmin(User user) {
-        if (user.getRole() != Rol.ROLE_ADMIN) {
-            throw new UnauthorizedException("No tiene permisos para realizar esta accion");
-        }
-    }
-
-    private void validateRolUser(User user) {
-        if (user.getRole() != Rol.ROLE_OPERATOR && user.getRole() != Rol.ROLE_ADMIN) {
-            throw new UnauthorizedException("No tiene permiso para realizar esta accion");
+            throw ex;
         }
     }
 }
