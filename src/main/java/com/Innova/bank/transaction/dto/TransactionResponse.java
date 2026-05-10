@@ -15,7 +15,11 @@ public class TransactionResponse {
     private Long id;
     private String referenceNumber;
     private String originAccountNumber;
-    private String toAccountNumber;
+    private String destinationAccountNumber;
+    private String originOwner;
+    private String destinationOwner;
+    private String originAccountType;
+    private String destinationAccountType;
     private BigDecimal amount;
     private BigDecimal fee;
     private BigDecimal totalDebited;

@@ -15,7 +15,9 @@ public interface TransactionService {
 
     TransactionResponse createWithdrawal(String requestId, CreateWithdrawalRequest request, HttpServletRequest httpRequest);
 
+    TransactionResponse reverseTransaction(String referenceNumber, HttpServletRequest httpRequest);
+
     Page<TransactionResponse> getMyTransactions(int page, int size);
 
-    Page<TransactionResponse> getAccountTransactions (String accountNumber, int page, int size);
+    Page<TransactionResponse> getAccountTransactions(String accountNumber, int page, int size );
 }

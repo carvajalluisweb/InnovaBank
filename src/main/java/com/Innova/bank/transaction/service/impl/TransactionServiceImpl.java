@@ -1,12 +1,13 @@
 package com.Innova.bank.transaction.service.impl;
 
 import com.Innova.bank.account.entity.Account;
-import com.Innova.bank.account.repository.AccountRepository;
-import com.Innova.bank.audit.service.AuditLogService;
-import com.Innova.bank.common.exception.BadRequestException;
-import com.Innova.bank.common.exception.ResourceNotFoundException;
-import com.Innova.bank.common.exception.UnauthorizedException;
-import com.Innova.bank.enums.*;
+import com.Innova.bank.common.audit.AuditFacade;
+import com.Innova.bank.common.exception.ExceptionFactory;
+import com.Innova.bank.common.security.AuthorizationService;
+import com.Innova.bank.common.security.CurrentUserService;
+import com.Innova.bank.common.validation.TransactionValidationService;
+import com.Innova.bank.enums.AuditAction;
+import com.Innova.bank.enums.TransactionType;
 import com.Innova.bank.fee.service.TransactionFeeService;
 import com.Innova.bank.transaction.dto.CreateDepositRequest;
 import com.Innova.bank.transaction.dto.CreateTransferRequest;
@@ -16,70 +17,77 @@ import com.Innova.bank.transaction.entity.Transaction;
 import com.Innova.bank.transaction.mapper.TransactionMapper;
 import com.Innova.bank.transaction.repository.TransactionRepository;
 import com.Innova.bank.transaction.service.TransactionService;
+import com.Innova.bank.transaction.service.TransactionStatusService;
 import com.Innova.bank.user.entity.User;
-import com.Innova.bank.user.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class TransactionServiceImpl implements TransactionService {
 
-    @Value("${transaction.daily-limit}")
-    private BigDecimal dailyLimit;
-
     private final TransactionRepository transactionRepository;
-    private final AccountRepository accountRepository;
-    private final UserRepository userRepository;
     private final TransactionMapper transactionMapper;
-    private final AuditLogService auditLogService;
     private final TransactionFeeService transactionFeeService;
+    private final CurrentUserService currentUserService;
+    private final AuthorizationService authorizationService;
+    private final ExceptionFactory exceptionFactory;
+    private final TransactionValidationService transactionValidationService;
+    private final TransactionStatusService transactionStatusService;
+    private final AuditFacade auditFacade;
 
     @Override
-    public TransactionResponse createTransfer(
-            String requestId,
-            CreateTransferRequest request,
-            HttpServletRequest httpRequest
-    ) {
-        User authenticatedUser = getAuthenticatedUser();
+    public TransactionResponse createTransfer(String requestId, CreateTransferRequest request, HttpServletRequest httpRequest) {
 
-        Transaction existing = validateIdempotency(requestId);
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        Transaction existing = transactionValidationService.validateRequestId(requestId);
+
         if (existing != null) {
             return transactionMapper.toResponse(existing);
         }
 
+        String referenceNumber = transactionValidationService.generateTransactionReference();
+
+        Account originAccount = null;
+        Account toAccount = null;
+
         try {
-            Account[] lockedAccounts = lockAccountsForTransfer(
+
+            Account[] lockedAccounts = transactionValidationService.lockAccountsForTransfer(
                     request.getOriginAccountNumber(),
                     request.getToAccountNumber()
             );
 
-            Account originAccount = lockedAccounts[0];
-            Account toAccount = lockedAccounts[1];
+            originAccount = lockedAccounts[0];
+            toAccount = lockedAccounts[1];
 
             BigDecimal fee = transactionFeeService.getFeeByTransactionType(TransactionType.TRANSFER);
 
-            validateTransfer(request, authenticatedUser, originAccount, toAccount, fee);
+            transactionValidationService.validateTransfer(
+                    authenticatedUser,
+                    originAccount,
+                    toAccount,
+                    request.getAmount(),
+                    fee
+            );
 
             BigDecimal totalDebited = request.getAmount().add(fee);
 
             originAccount.setBalance(originAccount.getBalance().subtract(totalDebited));
+
             toAccount.setBalance(toAccount.getBalance().add(request.getAmount()));
 
-            Transaction transaction = transactionMapper.toEntity(
+            Transaction savedTransaction = transactionStatusService.saveSuccessTransaction(
                     requestId,
+                    referenceNumber,
                     originAccount,
                     toAccount,
                     request.getAmount(),
@@ -88,56 +96,80 @@ public class TransactionServiceImpl implements TransactionService {
                     request.getDescription()
             );
 
-            Transaction savedTransaction = transactionRepository.save(transaction);
-
-            auditSuccess(
-                    authenticatedUser,
+            auditFacade.success(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_TRANSFER,
-                    "Transferencia realizada de " + originAccount.getAccountNumber()
-                            + " a " + toAccount.getAccountNumber()
-                            + " por " + request.getAmount()
-                            + " con tarifa de " + fee,
+                    "Transferencia realizada | Origen: "
+                            + originAccount.getAccountNumber()
+                            + " | Destino: "
+                            + toAccount.getAccountNumber()
+                            + " | Monto: "
+                            + request.getAmount(),
                     httpRequest
             );
 
             return transactionMapper.toResponse(savedTransaction);
 
-        } catch (Exception exception) {
-            auditFailure(
-                    authenticatedUser,
+        } catch (Exception ex) {
+
+            transactionStatusService.saveFailedTransaction(
+                    requestId,
+                    referenceNumber,
+                    originAccount,
+                    toAccount,
+                    request.getAmount(),
+                    TransactionType.TRANSFER,
+                    ex.getMessage()
+            );
+
+            auditFacade.failed(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_TRANSFER,
-                    "Error al realizar la transferencia: " + exception.getMessage(),
+                    "Error transferencia | Origen: "
+                            + request.getOriginAccountNumber()
+                            + " | Destino: "
+                            + request.getToAccountNumber()
+                            + " | Error: "
+                            + ex.getMessage(),
                     httpRequest
             );
-            throw exception;
+
+            throw ex;
         }
     }
 
     @Override
-    public TransactionResponse createDeposit(
-            String requestId,
-            CreateDepositRequest request,
-            HttpServletRequest httpRequest
-    ) {
-        User authenticatedUser = getAuthenticatedUser();
+    public TransactionResponse createDeposit(String requestId, CreateDepositRequest request, HttpServletRequest httpRequest) {
 
-        Transaction existing = validateIdempotency(requestId);
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        Transaction existing = transactionValidationService.validateRequestId(requestId);
+
         if (existing != null) {
             return transactionMapper.toResponse(existing);
         }
 
-        try {
-            validateUserRol(authenticatedUser);
+        String referenceNumber = transactionValidationService.generateTransactionReference();
 
-            Account toAccount = findAccountByNumberForUpdate(request.getToAccountNumber());
-            validateAccountActive(toAccount, "La cuenta destino no está activa");
+        Account toAccount = null;
+
+        try {
+
+            authorizationService.requireOperatorOrAdmin(authenticatedUser);
+
+            toAccount = transactionValidationService.findAccountByNumberForUpdate(request.getToAccountNumber());
+
+            transactionValidationService.validateAccountActive(toAccount, "La cuenta destino no está activa");
 
             BigDecimal fee = transactionFeeService.getFeeByTransactionType(TransactionType.DEPOSIT);
 
             toAccount.setBalance(toAccount.getBalance().add(request.getAmount()));
 
-            Transaction transaction = transactionMapper.toEntity(
+            Transaction savedTransaction = transactionStatusService.saveSuccessTransaction(
                     requestId,
+                    referenceNumber,
                     null,
                     toAccount,
                     request.getAmount(),
@@ -146,55 +178,76 @@ public class TransactionServiceImpl implements TransactionService {
                     request.getDescription()
             );
 
-            Transaction savedTransaction = transactionRepository.save(transaction);
-
-            auditSuccess(
-                    authenticatedUser,
+            auditFacade.success(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_DEPOSIT,
-                    "Depósito realizado a la cuenta " + toAccount.getAccountNumber()
-                            + " por " + request.getAmount()
-                            + " tarifa " + fee,
+                    "Depósito realizado | Cuenta: "
+                            + toAccount.getAccountNumber()
+                            + " | Monto: "
+                            + request.getAmount(),
                     httpRequest
             );
 
             return transactionMapper.toResponse(savedTransaction);
 
-        } catch (Exception exception) {
-            auditFailure(
-                    authenticatedUser,
+        } catch (Exception ex) {
+
+            transactionStatusService.saveFailedTransaction(
+                    requestId,
+                    referenceNumber,
+                    null,
+                    toAccount,
+                    request.getAmount(),
+                    TransactionType.DEPOSIT,
+                    ex.getMessage()
+            );
+
+            auditFacade.failed(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_DEPOSIT,
-                    "Error al realizar el depósito: " + exception.getMessage(),
+                    "Error depósito | Cuenta: "
+                            + request.getToAccountNumber()
+                            + " | Error: "
+                            + ex.getMessage(),
                     httpRequest
             );
-            throw exception;
+
+            throw ex;
         }
     }
 
     @Override
-    public TransactionResponse createWithdrawal(
-            String requestId,
-            CreateWithdrawalRequest request,
-            HttpServletRequest httpRequest
-    ) {
-        User authenticatedUser = getAuthenticatedUser();
+    public TransactionResponse createWithdrawal(String requestId, CreateWithdrawalRequest request, HttpServletRequest httpRequest) {
 
-        Transaction existing = validateIdempotency(requestId);
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        Transaction existing = transactionValidationService.validateRequestId(requestId);
+
         if (existing != null) {
             return transactionMapper.toResponse(existing);
         }
 
+        String referenceNumber = transactionValidationService.generateTransactionReference();
+
+        Account account = null;
+
         try {
-            Account account = findAccountByNumberForUpdate(request.getToAccountNumber());
+
+            account = transactionValidationService.findAccountByNumberForUpdate(request.getAccountNumber());
 
             BigDecimal fee = transactionFeeService.getFeeByTransactionType(TransactionType.WITHDRAWAL);
 
-            validateWithdrawal(request, authenticatedUser, account, fee);
+            transactionValidationService.validateWithdrawal(authenticatedUser, account, request.getAmount(), fee);
 
             BigDecimal totalDebited = request.getAmount().add(fee);
+
             account.setBalance(account.getBalance().subtract(totalDebited));
 
-            Transaction transaction = transactionMapper.toEntity(
+            Transaction savedTransaction = transactionStatusService.saveSuccessTransaction(
                     requestId,
+                    referenceNumber,
                     account,
                     null,
                     request.getAmount(),
@@ -203,240 +256,143 @@ public class TransactionServiceImpl implements TransactionService {
                     request.getDescription()
             );
 
-            Transaction savedTransaction = transactionRepository.save(transaction);
-
-            auditSuccess(
-                    authenticatedUser,
+            auditFacade.success(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_WITHDRAWAL,
-                    "Retiro realizado desde la cuenta " + account.getAccountNumber()
-                            + " por " + request.getAmount()
-                            + " con fee " + fee,
+                    "Retiro realizado | Cuenta: "
+                            + account.getAccountNumber()
+                            + " | Monto: "
+                            + request.getAmount(),
                     httpRequest
             );
 
             return transactionMapper.toResponse(savedTransaction);
 
-        } catch (Exception exception) {
-            auditFailure(
-                    authenticatedUser,
+        } catch (Exception ex) {
+
+            transactionStatusService.saveFailedTransaction(
+                    requestId,
+                    referenceNumber,
+                    account,
+                    null,
+                    request.getAmount(),
+                    TransactionType.WITHDRAWAL,
+                    ex.getMessage()
+            );
+
+            auditFacade.failed(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
                     AuditAction.CREATE_WITHDRAWAL,
-                    "Error al realizar retiro: " + exception.getMessage(),
+                    "Error retiro | Cuenta: "
+                            + request.getAccountNumber()
+                            + " | Error: "
+                            + ex.getMessage(),
                     httpRequest
             );
-            throw exception;
+
+            throw ex;
+        }
+    }
+
+    @Override
+    public TransactionResponse reverseTransaction(String referenceNumber, HttpServletRequest httpRequest) {
+
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        try {
+
+            authorizationService.requireOperatorOrAdmin(authenticatedUser);
+
+            Transaction transaction = transactionRepository.findByReferenceNumber(referenceNumber)
+                            .orElseThrow(() -> exceptionFactory.notFound("Transacción no encontrada"));
+
+            transactionStatusService.validateReversible(transaction);
+
+            if (transaction.getTransactionType() == TransactionType.TRANSFER) {
+
+                Account originAccount = transactionValidationService.findAccountByNumberForUpdate(transaction.getOriginAccount().getAccountNumber());
+
+                Account destinationAccount = transactionValidationService.findAccountByNumberForUpdate(transaction.getToAccount().getAccountNumber());
+
+                originAccount.setBalance(originAccount.getBalance().add(transaction.getTotalDebited()));
+
+                destinationAccount.setBalance(destinationAccount.getBalance().subtract(transaction.getAmount()));
+            }
+
+            if (transaction.getTransactionType() == TransactionType.WITHDRAWAL) {
+
+                Account originAccount = transactionValidationService.findAccountByNumberForUpdate(transaction.getOriginAccount().getAccountNumber());
+
+                originAccount.setBalance(originAccount.getBalance().add(transaction.getTotalDebited()));
+            }
+
+            Transaction reversedTransaction = transactionStatusService.reverseTransaction(transaction);
+
+            auditFacade.success(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
+                    AuditAction.REVERSE_TRANSACTION,
+                    "Transacción reversada | Referencia: "
+                            + transaction.getReferenceNumber()
+                            + " | Tipo: "
+                            + transaction.getTransactionType().name(),
+                    httpRequest
+            );
+
+            return transactionMapper.toResponse(
+                    reversedTransaction
+            );
+
+        } catch (Exception ex) {
+
+            auditFacade.failed(
+                    authenticatedUser.getId(),
+                    authenticatedUser.getEmail(),
+                    AuditAction.REVERSE_TRANSACTION,
+                    "Error reversando transacción | Referencia: "
+                            + referenceNumber
+                            + " | Error: "
+                            + ex.getMessage(),
+                    httpRequest
+            );
+
+            throw ex;
         }
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<TransactionResponse> getMyTransactions(int page, int size) {
-        User authenticatedUser = getAuthenticatedUser();
+
+        User authenticatedUser = currentUserService.getCurrentUser();
 
         return transactionRepository.findMyTransactions(
-                authenticatedUser,
-                PageRequest.of(page, size)
-        ).map(transactionMapper::toResponse);
+                        authenticatedUser,
+                        PageRequest.of(page, size)
+                )
+                .map(transactionMapper::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<TransactionResponse> getAccountTransactions(String accountNumber, int page, int size) {
-        User authenticatedUser = getAuthenticatedUser();
-        Account account = findAccountByNumber(accountNumber);
 
-        if (authenticatedUser.getRole() == Rol.ROLE_USER
-                && !account.getUser().getId().equals(authenticatedUser.getId())) {
-            throw new UnauthorizedException("No tienes permisos para ver los movimientos de esta cuenta");
-        }
+        User authenticatedUser = currentUserService.getCurrentUser();
+
+        Account account = transactionValidationService.findAccountByNumber(accountNumber);
+
+        transactionValidationService.validateOwnership(
+                authenticatedUser,
+                account
+        );
 
         return transactionRepository.findByOriginAccountOrToAccountOrderByCreatedAtDesc(
-                account,
-                account,
-                PageRequest.of(page, size)
-        ).map(transactionMapper::toResponse);
-    }
-
-    private Transaction validateIdempotency(String requestId) {
-        if (requestId == null || requestId.isBlank()) {
-            throw new BadRequestException("El header X-Request-Id es obligatorio");
-        }
-
-        return transactionRepository.findByRequestId(requestId).orElse(null);
-    }
-
-    private Account[] lockAccountsForTransfer(String originAccountNumber, String toAccountNumber) {
-        if (originAccountNumber.equals(toAccountNumber)) {
-            throw new BadRequestException("La cuenta origen y destino no pueden ser la misma");
-        }
-
-        if (originAccountNumber.compareTo(toAccountNumber) < 0) {
-            Account first = findAccountByNumberForUpdate(originAccountNumber);
-            Account second = findAccountByNumberForUpdate(toAccountNumber);
-            return new Account[]{first, second};
-        } else {
-            Account second = findAccountByNumberForUpdate(toAccountNumber);
-            Account first = findAccountByNumberForUpdate(originAccountNumber);
-            return new Account[]{first, second};
-        }
-    }
-
-    private void validateTransfer(
-            CreateTransferRequest request,
-            User authenticatedUser,
-            Account originAccount,
-            Account toAccount,
-            BigDecimal fee
-    ) {
-        if (authenticatedUser.getStatus() != UserStatus.ACTIVE) {
-            throw new UnauthorizedException("El usuario no está activo para realizar transferencias");
-        }
-
-        if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException("El monto debe ser mayor a 0");
-        }
-
-        validateAccountActive(originAccount, "La cuenta origen no está activa");
-        validateAccountActive(toAccount, "La cuenta destino no está activa");
-
-        if (authenticatedUser.getRole() == Rol.ROLE_USER
-                && !originAccount.getUser().getId().equals(authenticatedUser.getId())) {
-            throw new UnauthorizedException("No puedes transferir desde una cuenta que no te pertenece");
-        }
-
-        BigDecimal totalDebited = request.getAmount().add(fee);
-
-        if (originAccount.getBalance().compareTo(totalDebited) < 0) {
-            throw new BadRequestException("Saldo insuficiente para cubrir monto y fee");
-        }
-
-        validateDailyLimit(originAccount, totalDebited);
-    }
-
-    private void validateWithdrawal(
-            CreateWithdrawalRequest request,
-            User authenticatedUser,
-            Account account,
-            BigDecimal fee
-    ) {
-        if (authenticatedUser.getStatus() != UserStatus.ACTIVE) {
-            throw new UnauthorizedException("El usuario no está activo para realizar retiros");
-        }
-
-        if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException("El monto debe ser mayor a 0");
-        }
-
-        validateAccountActive(account, "La cuenta no está activa");
-
-        if (authenticatedUser.getRole() == Rol.ROLE_USER
-                && !account.getUser().getId().equals(authenticatedUser.getId())) {
-            throw new UnauthorizedException("No puedes retirar desde una cuenta que no te pertenece");
-        }
-
-        BigDecimal totalDebited = request.getAmount().add(fee);
-
-        if (account.getBalance().compareTo(totalDebited) < 0) {
-            throw new BadRequestException("Saldo insuficiente para cubrir monto y fee");
-        }
-
-        validateDailyLimit(account, totalDebited);
-    }
-
-    private void validateDailyLimit(Account originAccount, BigDecimal totalDebited) {
-        LocalDateTime start = LocalDateTime.now().toLocalDate().atStartOfDay();
-        LocalDateTime end = start.plusDays(1).minusNanos(1);
-
-        BigDecimal dailyTransferred = transactionRepository.sumDailyOutgoingWithFee(
-                originAccount,
-                TransactionStatus.SUCCESS,
-                List.of(TransactionType.TRANSFER, TransactionType.WITHDRAWAL),
-                start,
-                end
-        );
-
-        BigDecimal projectedTotal = dailyTransferred.add(totalDebited);
-
-        if (projectedTotal.compareTo(dailyLimit) > 0) {
-            throw new BadRequestException("La operación excede el límite diario permitido");
-        }
-    }
-
-    private void validateAccountActive(Account account, String message) {
-        if (account.getStatus() != AccountStatus.ACTIVE) {
-            throw new BadRequestException(message);
-        }
-
-        if (account.getUser().getStatus() != UserStatus.ACTIVE) {
-            throw new BadRequestException("El propietario de la cuenta no está activo");
-        }
-    }
-
-    private Account findAccountByNumber(String accountNumber) {
-        return accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Cuenta no encontrada con número: " + accountNumber
-                ));
-    }
-
-    private Account findAccountByNumberForUpdate(String accountNumber) {
-        return accountRepository.findByAccountNumberForUpdate(accountNumber)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Cuenta no encontrada con número: " + accountNumber
-                ));
-    }
-
-    private User getAuthenticatedUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || authentication.getName() == null || !authentication.isAuthenticated()) {
-            throw new UnauthorizedException("Usuario no autenticado");
-        }
-
-        User user = userRepository.findByEmail(authentication.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-
-        if (user.getStatus() != UserStatus.ACTIVE) {
-            throw new UnauthorizedException("El usuario no está activo");
-        }
-
-        return user;
-    }
-
-    private void validateUserRol(User user) {
-        if (user.getRole() != Rol.ROLE_OPERATOR && user.getRole() != Rol.ROLE_ADMIN) {
-            throw new UnauthorizedException("No tienes permisos para realizar esta acción");
-        }
-    }
-
-    private void auditSuccess(
-            User user,
-            AuditAction action,
-            String description,
-            HttpServletRequest httpRequest
-    ) {
-        auditLogService.save(
-                user.getId(),
-                user.getEmail(),
-                action,
-                description,
-                AuditStatus.SUCCESS,
-                httpRequest
-        );
-    }
-
-    private void auditFailure(
-            User user,
-            AuditAction action,
-            String description,
-            HttpServletRequest httpRequest
-    ) {
-        auditLogService.save(
-                user.getId(),
-                user.getEmail(),
-                action,
-                description,
-                AuditStatus.FAILED,
-                httpRequest
-        );
+                        account,
+                        account,
+                        PageRequest.of(page, size)
+                )
+                .map(transactionMapper::toResponse);
     }
 }

@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 public class CreateWithdrawalRequest {
 
     @NotBlank(message = "La cuenta destino es obligatoria")
-    private String toAccountNumber;
+    private String accountNumber;
 
     @NotNull(message = "El monto es obligatorio")
     @DecimalMin(value = "0.01", message = "El monto debe ser mayor a 0")

@@ -1,6 +1,7 @@
 package com.Innova.bank.transaction.controller;
 
 import com.Innova.bank.common.response.ApiResponse;
+import com.Innova.bank.common.response.ResponseFactory;
 import com.Innova.bank.transaction.dto.CreateDepositRequest;
 import com.Innova.bank.transaction.dto.CreateTransferRequest;
 import com.Innova.bank.transaction.dto.CreateWithdrawalRequest;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class TransactionController {
 
     private final TransactionService transactionService;
+    private final ResponseFactory responseFactory;
 
     @PostMapping("/transfer")
     public ResponseEntity<ApiResponse<TransactionResponse>> createTransfer(
@@ -26,15 +28,10 @@ public class TransactionController {
             @Valid @RequestBody CreateTransferRequest request,
             HttpServletRequest httpRequest
     ) {
+
         TransactionResponse response = transactionService.createTransfer(requestId, request, httpRequest);
 
-        return ResponseEntity.ok(
-                ApiResponse.<TransactionResponse>builder()
-                        .success(true)
-                        .message("Transferencia realizada correctamente")
-                        .data(response)
-                        .build()
-        );
+        return responseFactory.ok("Transferencia realizada correctamente", response);
     }
 
     @PostMapping("/deposit")
@@ -43,15 +40,10 @@ public class TransactionController {
             @Valid @RequestBody CreateDepositRequest request,
             HttpServletRequest httpRequest
     ) {
+
         TransactionResponse response = transactionService.createDeposit(requestId, request, httpRequest);
 
-        return ResponseEntity.ok(
-                ApiResponse.<TransactionResponse>builder()
-                        .success(true)
-                        .message("Depósito realizado correctamente")
-                        .data(response)
-                        .build()
-        );
+        return responseFactory.ok("Depósito realizado correctamente", response);
     }
 
     @PostMapping("/withdrawal")
@@ -60,15 +52,21 @@ public class TransactionController {
             @Valid @RequestBody CreateWithdrawalRequest request,
             HttpServletRequest httpRequest
     ) {
+
         TransactionResponse response = transactionService.createWithdrawal(requestId, request, httpRequest);
 
-        return ResponseEntity.ok(
-                ApiResponse.<TransactionResponse>builder()
-                        .success(true)
-                        .message("Retiro realizado correctamente")
-                        .data(response)
-                        .build()
-        );
+        return responseFactory.ok("Retiro realizado correctamente", response);
+    }
+
+    @PostMapping("/{referenceNumber}/reverse")
+    public ResponseEntity<ApiResponse<TransactionResponse>> reverseTransaction(
+            @PathVariable String referenceNumber,
+            HttpServletRequest httpRequest
+    ) {
+
+        TransactionResponse response = transactionService.reverseTransaction(referenceNumber, httpRequest);
+
+        return responseFactory.ok("Transacción reversada correctamente", response);
     }
 
     @GetMapping("/me")
@@ -76,15 +74,10 @@ public class TransactionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
+
         Page<TransactionResponse> response = transactionService.getMyTransactions(page, size);
 
-        return ResponseEntity.ok(
-                ApiResponse.<Page<TransactionResponse>>builder()
-                        .success(true)
-                        .message("Movimientos obtenidos correctamente")
-                        .data(response)
-                        .build()
-        );
+        return responseFactory.ok("Movimientos obtenidos correctamente", response);
     }
 
     @GetMapping("/account/{accountNumber}")
@@ -93,14 +86,10 @@ public class TransactionController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
+
         Page<TransactionResponse> response = transactionService.getAccountTransactions(accountNumber, page, size);
 
-        return ResponseEntity.ok(
-                ApiResponse.<Page<TransactionResponse>>builder()
-                        .success(true)
-                        .message("Movimientos de cuenta obtenidos correctamente")
-                        .data(response)
-                        .build()
-        );
+        return responseFactory.ok("Movimientos de cuenta obtenidos correctamente", response);
     }
+
 }

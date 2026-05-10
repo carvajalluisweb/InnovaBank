@@ -1,50 +1,68 @@
 package com.Innova.bank.transaction.mapper;
 
 import com.Innova.bank.account.entity.Account;
-import com.Innova.bank.enums.TransactionStatus;
-import com.Innova.bank.enums.TransactionType;
-import com.Innova.bank.transaction.dto.CreateTransferRequest;
 import com.Innova.bank.transaction.dto.TransactionResponse;
 import com.Innova.bank.transaction.entity.Transaction;
+import com.Innova.bank.enums.TransactionStatus;
+import com.Innova.bank.enums.TransactionType;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.UUID;
 
 @Component
 public class TransactionMapper {
 
-    public Transaction toEntity(String requestId, Account originAccount, Account toAccount, BigDecimal amount, BigDecimal fee, TransactionType transactionType, String description){
+    public Transaction toEntity(String requestId, String referenceNumber, Account originAccount, Account toAccount, BigDecimal amount,
+            BigDecimal fee, TransactionType transactionType, TransactionStatus status, String description) {
+
         return Transaction.builder()
-                .referenceNumber(UUID.randomUUID().toString())
                 .requestId(requestId)
+                .referenceNumber(referenceNumber)
                 .originAccount(originAccount)
                 .toAccount(toAccount)
                 .amount(amount)
                 .fee(fee)
+                .totalDebited(amount.add(fee))
                 .transactionType(transactionType)
-                .status(TransactionStatus.SUCCESS)
+                .status(status)
                 .description(description)
                 .build();
     }
 
-    public TransactionResponse toResponse(Transaction transaction){
-        BigDecimal totalDebited = transaction.getAmount().add(transaction.getFee());
+    public TransactionResponse toResponse(Transaction transaction) {
 
-        return  TransactionResponse.builder()
-                .id(transaction.getId())
-                .referenceNumber(transaction.getReferenceNumber())
-                .originAccountNumber(transaction.getOriginAccount() != null ? transaction.getOriginAccount()  .getAccountNumber() : null)
-                .toAccountNumber(transaction.getToAccount() != null ? transaction.getToAccount().getAccountNumber() : null)
-                .amount(transaction.getAmount())
-                .fee(transaction.getFee())
-                .totalDebited(totalDebited)
-                .transactionType(transaction.getTransactionType().name())
-                .status(transaction.getStatus().name())
-                .description(transaction.getDescription())
-                .createdAt(transaction.getCreatedAt())
-                .build();
+        TransactionResponse response = new TransactionResponse();
+
+        response.setId(transaction.getId());
+
+        response.setReferenceNumber(transaction.getReferenceNumber());
+
+        response.setOriginAccountNumber(transaction.getOriginAccount() != null ? transaction.getOriginAccount().getAccountNumber() : null);
+
+        response.setDestinationAccountNumber(transaction.getToAccount() != null ? transaction.getToAccount().getAccountNumber() : null);
+
+        response.setOriginOwner(transaction.getOriginAccount() != null ? transaction.getOriginAccount().getUser().getEmail() : null);
+
+        response.setDestinationOwner(transaction.getToAccount() != null ? transaction.getToAccount().getUser().getEmail() : null);
+
+        response.setOriginAccountType(transaction.getOriginAccount() != null ? transaction.getOriginAccount().getAccountType().name(): null);
+
+        response.setDestinationAccountType(transaction.getToAccount() != null ? transaction.getToAccount() .getAccountType().name() : null);
+
+        response.setAmount(transaction.getAmount());
+
+        response.setFee(transaction.getFee());
+
+        response.setTotalDebited(transaction.getTotalDebited());
+
+        response.setTransactionType(transaction.getTransactionType().name());
+
+        response.setStatus(transaction.getStatus().name());
+
+        response.setDescription(transaction.getDescription());
+
+        response.setCreatedAt(transaction.getCreatedAt());
+
+        return response;
     }
-
-
 }
